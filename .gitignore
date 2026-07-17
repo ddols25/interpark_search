@@ -1,0 +1,6 @@
+*.xcodeproj/
+xcuserdata/
+DerivedData/
+*.xcuserstate
+.DS_Store
+Secrets.plist
