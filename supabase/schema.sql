@@ -58,16 +58,20 @@ create extension if not exists pg_net with schema extensions;
 -- 4) 1분마다 check-seats Edge Function 호출을 예약한다.
 --    함수 내부에서 avail_seats.interval_minutes가 지났는지 스스로 판단하므로,
 --    이 크론 주기(1분)는 "가장 촘촘한 조회 해상도"일 뿐 실제 조회 주기가 아니다.
---    YOUR_PROJECT_REF / YOUR_SERVICE_ROLE_KEY를 실제 값으로 바꿔서 실행하세요.
---    (service_role 키가 이 SQL과 함께 cron.job 테이블에 평문 저장되니, 반드시 본인 프로젝트에서만 실행할 것)
+--
+--    ⚠️ 주의: 아래 YOUR_PROJECT_REF / YOUR_SERVICE_ROLE_KEY는 SQL Editor에서 실행할 때만
+--    로컬로 채워 넣고, 절대 이 파일에 실제 값을 커밋하지 마세요.
+--    service_role 키는 RLS를 완전히 우회하는 최고 권한 키라, 커밋되어 저장소(git 히스토리 포함)에
+--    남으면 유출로 간주해 즉시 Project Settings > API에서 회전(rotate)해야 합니다.
+--    (이 SQL과 함께 cron.job 테이블에도 평문으로 저장되니, 그 점도 감안할 것)
 select cron.schedule(
   'check-seats-every-minute',
   '* * * * *',
   $$
   select net.http_post(
-    url := 'https://ejovypvaeopcvxrjdwyb.supabase.co/functions/v1/check-seats',
+    url := 'https://YOUR_PROJECT_REF.supabase.co/functions/v1/check-seats',
     headers := jsonb_build_object(
-      'Authorization', 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVqb3Z5cHZhZW9wY3Z4cmpkd3liIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MzUwMTAzNiwiZXhwIjoyMDk5MDc3MDM2fQ.JLz9yXYiXyLx2P7IT8qpkwL_4dCjCG0insWPeKETg2E',
+      'Authorization', 'Bearer YOUR_SERVICE_ROLE_KEY',
       'Content-Type', 'application/json'
     ),
     body := '{}'::jsonb
