@@ -104,84 +104,9 @@ function urlBase64ToUint8Array(base64String) {
 // }
 // ── SUPABASE 비활성화 끝 ────────────────────────────────────────────────
 
-// 인터파크 공개 API 클라이언트 (조회 전용) — Supabase 비활성 상태에서 브라우저가 직접 호출한다.
-// InterparkClient.swift / supabase/functions/check-seats 와 동일한 로직.
-const INTERPARK_BASE = "https://api-ticketfront.interpark.com";
-
-function fmtDate(raw) {
-  return /^\d{8}$/.test(raw) ? `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}` : raw;
-}
-
-function fmtTime(raw) {
-  return /^\d{4}$/.test(raw) ? `${raw.slice(0, 2)}:${raw.slice(2, 4)}` : raw;
-}
-
-function ymd(d) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}${m}${day}`;
-}
-
-async function fetchSchedule(goodsCode) {
-  const now = new Date();
-  const nextYear = new Date(now);
-  nextYear.setFullYear(nextYear.getFullYear() + 1);
-
-  const url = new URL(`${INTERPARK_BASE}/v1/goods/${goodsCode}/playSeq`);
-  url.searchParams.set("goodsCode", goodsCode);
-  url.searchParams.set("isBookableDate", "true");
-  url.searchParams.set("page", "1");
-  url.searchParams.set("pageSize", "200");
-  url.searchParams.set("startDate", ymd(now));
-  url.searchParams.set("endDate", ymd(nextYear));
-
-  const res = await fetch(url, { headers: { Accept: "application/json" } });
-  if (!res.ok) throw new Error(`일정 조회 실패 (HTTP ${res.status})`);
-  const json = await res.json();
-
-  let items = [];
-  if (Array.isArray(json)) items = json;
-  else if (json?.response?.data) items = json.response.data;
-  else if (json?.data) items = json.data;
-
-  return items.map((item) => ({
-    date: fmtDate(String(item.playDate ?? "")),
-    time: fmtTime(String(item.playTime ?? "")),
-    playSeq: String(item.playSeq ?? ""),
-  }));
-}
-
-async function fetchSeats(goodsCode, playSeq) {
-  const url = `${INTERPARK_BASE}/v1/goods/${goodsCode}/playSeq/PlaySeq/${playSeq}/REMAINSEAT`;
-  const res = await fetch(url, { headers: { Accept: "application/json" } });
-  if (!res.ok) throw new Error(`좌석 조회 실패 (HTTP ${res.status})`);
-  const json = await res.json();
-
-  let raw = [];
-  if (json?.remainSeat) raw = json.remainSeat;
-  else if (json?.data?.remainSeat) raw = json.data.remainSeat;
-  else if (json?.response?.remainSeat) raw = json.response.remainSeat;
-
-  return raw.map((s) => ({
-    grade: String(s.seatGradeName ?? s.seatGrade ?? ""),
-    remain: Number(s.remainCnt ?? 0),
-  }));
-}
-
-/** 전 회차 순회 — 회차 사이 0.3초 간격을 둔다 (레이트리밋 대응). */
-async function fetchAllSchedules(goodsCode) {
-  const schedule = await fetchSchedule(goodsCode);
-  const results = [];
-  for (const item of schedule) {
-    if (!item.playSeq) continue;
-    const seats = await fetchSeats(goodsCode, item.playSeq);
-    results.push({ ...item, seats });
-    await new Promise((r) => setTimeout(r, 300));
-  }
-  return results;
-}
-
+// 온디맨드 조회 — 인터파크 API를 브라우저가 직접 부르면 CORS로 막히기 때문에,
+// Supabase Edge Function(check-seats)을 "즉시 조회 프록시"로만 호출한다.
+// (크론/웹푸시/DB저장 없이, goodsCode를 넘기면 그 자리에서 조회 결과만 반환받는 모드)
 async function checkNow() {
   const code = el.goodsCode.value.trim();
   if (!code) {
@@ -191,13 +116,23 @@ async function checkNow() {
   el.checkNowBtn.disabled = true;
   setStatus("조회 중...");
   try {
-    const schedules = await fetchAllSchedules(code);
-    renderResult({ checkedAt: new Date().toISOString(), schedules });
-    setStatus(`✅ 조회 완료 (회차 ${schedules.length}개)`);
+    const res = await fetch(`${cfg.SUPABASE_URL}/functions/v1/check-seats`, {
+      method: "POST",
+      headers: {
+        apikey: cfg.SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${cfg.SUPABASE_ANON_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ goodsCode: code }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+
+    renderResult({ checkedAt: data.checkedAt, schedules: data.schedules });
+    setStatus(`✅ 조회 완료 (회차 ${data.schedules.length}개)`);
   } catch (e) {
     console.error(e);
-    // 인터파크 API가 이 페이지의 출처(origin)를 막아두면(CORS) 여기서 실패한다.
-    setStatus(`조회 실패: ${e.message || e} (브라우저 콘솔에서 CORS 오류인지 확인해보세요)`, true);
+    setStatus(`조회 실패: ${e.message || e}`, true);
   } finally {
     el.checkNowBtn.disabled = false;
   }
