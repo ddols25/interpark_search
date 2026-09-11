@@ -69,7 +69,7 @@ select cron.schedule(
   '* * * * *',
   $$
   select net.http_post(
-    url := 'https://YOUR_PROJECT_REF.supabase.co/functions/v1/check-seats',
+    url := 'https://ejovypvaeopcvxrjdwyb.supabase.co/functions/v1/check-seats',
     headers := jsonb_build_object(
       'Authorization', 'Bearer YOUR_SERVICE_ROLE_KEY',
       'Content-Type', 'application/json'
