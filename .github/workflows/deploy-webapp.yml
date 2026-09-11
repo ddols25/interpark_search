@@ -1,0 +1,48 @@
+name: Deploy webapp to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "webapp/**"
+      - ".github/workflows/deploy-webapp.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # config.js는 저장소에 커밋하지 않으므로, 배포 시점에 리포지토리 시크릿으로부터 생성한다.
+      # (Settings > Secrets and variables > Actions 에 SUPABASE_URL / SUPABASE_ANON_KEY / VAPID_PUBLIC_KEY 등록 필요)
+      - name: Generate webapp/config.js from repository secrets
+        run: |
+          cat > webapp/config.js << EOF
+          window.APP_CONFIG = {
+            SUPABASE_URL: "${{ secrets.SUPABASE_URL }}",
+            SUPABASE_ANON_KEY: "${{ secrets.SUPABASE_ANON_KEY }}",
+            VAPID_PUBLIC_KEY: "${{ secrets.VAPID_PUBLIC_KEY }}",
+          };
+          EOF
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: webapp
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
