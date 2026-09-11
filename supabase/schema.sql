@@ -65,9 +65,9 @@ select cron.schedule(
   '* * * * *',
   $$
   select net.http_post(
-    url := 'https://YOUR_PROJECT_REF.supabase.co/functions/v1/check-seats',
+    url := 'https://ejovypvaeopcvxrjdwyb.supabase.co/functions/v1/check-seats',
     headers := jsonb_build_object(
-      'Authorization', 'Bearer YOUR_SERVICE_ROLE_KEY',
+      'Authorization', 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVqb3Z5cHZhZW9wY3Z4cmpkd3liIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MzUwMTAzNiwiZXhwIjoyMDk5MDc3MDM2fQ.JLz9yXYiXyLx2P7IT8qpkwL_4dCjCG0insWPeKETg2E',
       'Content-Type', 'application/json'
     ),
     body := '{}'::jsonb
