@@ -53,21 +53,29 @@ npx web-push generate-vapid-keys
 
 ### 2) Supabase 설정
 
+Supabase가 기존 `anon`/`service_role`(legacy JWT) 키를 **Publishable key** / **Secret key**로
+교체하는 중입니다. 이 프로젝트는 신규 키 체계를 기준으로 안내합니다 — Project Settings > API Keys의
+**"Publishable and secret API keys"** 탭에서 발급받으세요 (Legacy 탭은 안 써도 됩니다).
+
 1. Supabase 프로젝트 SQL Editor에서 `supabase/schema.sql`을 실행 (테이블/RLS/pg_cron 준비)
-   - 파일 하단의 `cron.schedule(...)` 블록은 `YOUR_PROJECT_REF`, `YOUR_SERVICE_ROLE_KEY`를 실제 값으로 바꾼 뒤 실행하세요.
+   - 파일 하단의 `cron.schedule(...)` 블록은 `YOUR_PROJECT_REF`, `YOUR_SERVICE_ROLE_KEY`를
+     실제 project ref / **Secret key**(`sb_secret_...`)로 바꾼 뒤 실행하세요.
 2. Edge Function 배포:
    ```bash
    supabase functions deploy check-seats --project-ref YOUR_PROJECT_REF
    supabase secrets set \
+     SB_SECRET_KEY=sb_secret_... \
      VAPID_PUBLIC_KEY=... \
      VAPID_PRIVATE_KEY=... \
      VAPID_SUBJECT=mailto:you@example.com \
      --project-ref YOUR_PROJECT_REF
    ```
-   (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`는 Edge Function 런타임에 기본으로 주입되므로 별도 설정 불필요)
-3. Project Settings > API에서 **Project URL**, **anon(publishable) key**, **service_role key**를 확인해둡니다.
-   - anon key → 웹앱(`config.js`)에서 사용 (공개되어도 되는 키)
-   - service_role key → `schema.sql`의 pg_cron 예약 SQL에서만 사용 (절대 클라이언트에 넣지 않음)
+   (`SB_SECRET_KEY`는 함수가 내부적으로 avail_seats/push_subscriptions 테이블에 접근할 때 씀.
+   `SUPABASE_URL`은 Edge Function 런타임에 기본으로 주입되므로 별도 설정 불필요)
+3. Project Settings > API Keys에서 **Project URL**, **Publishable key**, **Secret key**를 확인해둡니다.
+   - Publishable key → 웹앱(`config.js`)의 `SUPABASE_ANON_KEY` 자리에 사용 (공개되어도 되는 키)
+   - Secret key → `schema.sql`의 pg_cron 예약 SQL + 위 `SB_SECRET_KEY` 시크릿에서만 사용
+     (절대 클라이언트/저장소에 커밋하지 않음)
 
 ### 3) 웹앱 설정/배포
 

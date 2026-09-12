@@ -13,7 +13,9 @@ const UA =
   "(KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+// 새 Secret key(sb_secret_...) 체계를 쓰는 경우 SB_SECRET_KEY로 명시적으로 등록해서 사용한다.
+// (legacy service_role을 계속 쓰는 프로젝트를 위해 자동 주입 값도 폴백으로 둔다.)
+const SERVICE_ROLE_KEY = Deno.env.get("SB_SECRET_KEY") ?? Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const VAPID_PUBLIC_KEY = Deno.env.get("VAPID_PUBLIC_KEY")!;
 const VAPID_PRIVATE_KEY = Deno.env.get("VAPID_PRIVATE_KEY")!;
 const VAPID_SUBJECT = Deno.env.get("VAPID_SUBJECT") ?? "mailto:example@example.com";
