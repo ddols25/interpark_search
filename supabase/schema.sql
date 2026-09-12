@@ -25,6 +25,11 @@ create table if not exists public.push_subscriptions (
 alter table public.avail_seats enable row level security;
 alter table public.push_subscriptions enable row level security;
 
+-- SQL Editor로 테이블을 직접 만들면 anon/authenticated에 대한 기본 권한이 자동으로
+-- 안 붙는 경우가 있어(테이블 자체 접근 권한 부족 -> 401), RLS 정책과 별개로 명시적으로 부여한다.
+grant select, insert, update, delete on public.avail_seats to anon;
+grant select, insert, update, delete on public.push_subscriptions to anon;
+
 -- 개인용 앱이라 로그인 없이 anon(publishable) 키로 읽기/쓰기를 허용한다.
 -- 여러 사람이 접근 가능한 공개 프로젝트에 배포한다면 반드시 인증을 추가할 것.
 drop policy if exists "anon can read avail_seats" on public.avail_seats;
@@ -38,6 +43,10 @@ create policy "anon can upsert avail_seats" on public.avail_seats
 drop policy if exists "anon can update avail_seats" on public.avail_seats;
 create policy "anon can update avail_seats" on public.avail_seats
   for update to anon using (true);
+
+drop policy if exists "anon can read push_subscriptions" on public.push_subscriptions;
+create policy "anon can read push_subscriptions" on public.push_subscriptions
+  for select to anon using (true);
 
 drop policy if exists "anon can upsert push_subscriptions" on public.push_subscriptions;
 create policy "anon can upsert push_subscriptions" on public.push_subscriptions
