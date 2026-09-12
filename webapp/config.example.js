@@ -8,7 +8,7 @@
 //   `npx web-push generate-vapid-keys`로 생성한 공개 키를 넣으세요.
 //   개인 키(Private Key)는 여기 넣지 않고 Supabase Edge Function의 시크릿으로만 저장합니다.
 window.APP_CONFIG = {
-  SUPABASE_URL: "https://YOUR_PROJECT_REF.supabase.co",
-  SUPABASE_ANON_KEY: "YOUR_PUBLISHABLE_OR_ANON_KEY",
-  VAPID_PUBLIC_KEY: "YOUR_VAPID_PUBLIC_KEY",
+  SUPABASE_URL: "https://ejovypvaeopcvxrjdwyb.supabase.co",
+  SUPABASE_ANON_KEY: "sb_publishable_2oTZ9kYI2bZ2xpMW1ITkFQ_x7CyhsC0",
+  VAPID_PUBLIC_KEY: "BNixgFyhYRoolxYcK-Z4i9SzacJbZla0OImpOUNpjcNK1nxI0pxIeMaDXKhCDjZbUw_jLCMmppiMQOfihEUCyVM",
 };
