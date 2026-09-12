@@ -1,14 +1,7 @@
-// 인터파크 잔여석 조회 Edge Function.
-//
-// 두 가지 방식으로 호출된다:
-//   1) 온디맨드 모드 — 웹앱의 "지금 조회" 버튼이 POST 본문에 { goodsCode }를 담아 직접 호출.
-//      즉시 조회해서 결과만 JSON으로 돌려주고, DB 저장/웹푸시 발송은 하지 않는다.
-//      (인터파크 API가 브라우저 직접 호출은 CORS로 막아둬서, 이 함수가 그 대신 호출해준다.)
-//   2) 크론 모드 — pg_cron이 본문 없이(또는 goodsCode 없이) 주기 호출.
-//      avail_seats.interval_minutes만큼 지났을 때만 실제로 조회하고,
-//      잔여석 있으면 push_subscriptions의 모든 기기로 웹푸시를 보낸다.
-//      (현재 Supabase 연동/크론 자체를 잠시 꺼둔 상태라면 이 경로는 호출되지 않는다.)
-//
+// 인터파크 잔여석 주기 조회 Edge Function.
+// pg_cron이 1분마다 이 함수를 호출하고, 함수 내부에서 avail_seats.interval_minutes만큼
+// 시간이 지났을 때만 실제로 인터파크를 조회한다 (사용자가 설정한 임의 주기를 지원하기 위함).
+// 잔여석이 있으면 등록된 모든 기기로 웹푸시를 보낸다.
 // 조회 전용 — 예매/결제/좌석선택 요청은 만들지 않는다.
 // InterparkSeatChecker(iOS)의 InterparkClient.swift 로직을 그대로 이식.
 
@@ -21,24 +14,11 @@ const UA =
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-// VAPID 시크릿은 크론/웹푸시 발송 경로에서만 필요하다. 온디맨드 조회만 쓰는 동안은
-// 등록 안 해도 함수가 정상 동작하도록 여기서는 존재 여부만 확인하고, 실제 사용 시점에 체크한다.
-const VAPID_PUBLIC_KEY = Deno.env.get("VAPID_PUBLIC_KEY");
-const VAPID_PRIVATE_KEY = Deno.env.get("VAPID_PRIVATE_KEY");
+const VAPID_PUBLIC_KEY = Deno.env.get("VAPID_PUBLIC_KEY")!;
+const VAPID_PRIVATE_KEY = Deno.env.get("VAPID_PRIVATE_KEY")!;
 const VAPID_SUBJECT = Deno.env.get("VAPID_SUBJECT") ?? "mailto:example@example.com";
 
-const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
-
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-  });
-}
+webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 
 type Seat = { grade: string; remain: number };
 type ScheduleItem = { date: string; time: string; playSeq: string; seats: Seat[] };
@@ -151,34 +131,7 @@ async function fetchAll(goodsCode: string): Promise<ScheduleItem[]> {
   return results;
 }
 
-Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: CORS_HEADERS });
-  }
-
-  // ── 온디맨드 모드 ────────────────────────────────────────────────────
-  // 요청 본문에 goodsCode가 있으면 즉시 조회 후 결과만 반환한다 (DB 저장/웹푸시 없음).
-  let onDemandGoodsCode: string | null = null;
-  if (req.method === "POST") {
-    try {
-      const body = await req.json();
-      if (body?.goodsCode) onDemandGoodsCode = String(body.goodsCode);
-    } catch {
-      // 크론 호출은 본문이 없거나 비어있음 — 무시하고 아래 크론 모드로 진행.
-    }
-  }
-
-  if (onDemandGoodsCode) {
-    try {
-      const schedules = await fetchAll(onDemandGoodsCode);
-      return jsonResponse({ ok: true, checkedAt: new Date().toISOString(), schedules });
-    } catch (err) {
-      console.error(err);
-      return jsonResponse({ error: String(err) }, 500);
-    }
-  }
-
-  // ── 크론 모드 ───────────────────────────────────────────────────────
+Deno.serve(async (_req) => {
   try {
     const configRes = await fetch(`${SUPABASE_URL}/rest/v1/avail_seats?id=eq.1&select=*`, {
       headers: sbHeaders({ Accept: "application/json" }),
@@ -186,14 +139,14 @@ Deno.serve(async (req) => {
     const configRows = await configRes.json();
     const config = configRows[0];
     if (!config) {
-      return jsonResponse({ skipped: "no config" });
+      return new Response(JSON.stringify({ skipped: "no config" }), { status: 200 });
     }
 
     const now = Date.now();
     const lastChecked = config.last_checked_at ? new Date(config.last_checked_at).getTime() : 0;
     const intervalMs = Math.max(1, config.interval_minutes) * 60_000;
     if (now - lastChecked < intervalMs) {
-      return jsonResponse({ skipped: "interval not elapsed" });
+      return new Response(JSON.stringify({ skipped: "interval not elapsed" }), { status: 200 });
     }
 
     // 함수 실행 시간과 무관하게 조회 주기가 밀리지 않도록, 조회 전에 먼저 시각을 갱신해둔다.
@@ -204,7 +157,7 @@ Deno.serve(async (req) => {
     });
 
     if (config.quiet_hours_enabled && hourInKST(new Date(now)) < 7) {
-      return jsonResponse({ skipped: "quiet hours" });
+      return new Response(JSON.stringify({ skipped: "quiet hours" }), { status: 200 });
     }
 
     const schedules = await fetchAll(config.goods_code);
@@ -219,14 +172,8 @@ Deno.serve(async (req) => {
       item.seats.filter((s) => s.remain > 0).map((seat) => ({ item, seat }))
     );
     if (availableSeats.length === 0) {
-      return jsonResponse({ ok: true, available: 0 });
+      return new Response(JSON.stringify({ ok: true, available: 0 }), { status: 200 });
     }
-
-    if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) {
-      console.warn("VAPID 키가 설정되지 않아 웹푸시를 보내지 않음");
-      return jsonResponse({ ok: true, available: availableSeats.length, sent: 0, warning: "VAPID not configured" });
-    }
-    webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 
     const subsRes = await fetch(`${SUPABASE_URL}/rest/v1/push_subscriptions?select=*`, {
       headers: sbHeaders({ Accept: "application/json" }),
@@ -269,9 +216,9 @@ Deno.serve(async (req) => {
       }
     }
 
-    return jsonResponse({ ok: true, available: availableSeats.length, sent });
+    return new Response(JSON.stringify({ ok: true, available: availableSeats.length, sent }), { status: 200 });
   } catch (err) {
     console.error(err);
-    return jsonResponse({ error: String(err) }, 500);
+    return new Response(JSON.stringify({ error: String(err) }), { status: 500 });
   }
 });

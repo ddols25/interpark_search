@@ -1,12 +1,6 @@
 // 인터파크 잔여석 알림 — 웹앱(PWA) 클라이언트.
 // 이 파일은 "설정 화면" 역할만 한다: 공연 ID/주기/야간알림 설정을 Supabase에 저장하고,
 // 이 기기를 웹푸시 구독자로 등록한다. 실제 조회는 Supabase Edge Function(서버)에서 주기적으로 실행된다.
-//
-// ⚠️ Supabase 연동 임시 비활성화 (2026-09) — 서비스 키 유출 사고 정리 전까지 잠시 꺼둠.
-// 아래 Supabase 관련 함수/호출부를 모두 주석처리했다. 나중에 다시 쓰려면
-// "SUPABASE 비활성화" 표시가 붙은 블록들의 주석을 해제하면 된다.
-// 지금 상태에서는 알림 권한 요청 + 서비스워커 등록/푸시 구독까지는 동작하지만,
-// 설정/구독 정보가 서버에 저장되지 않고 서버 쪽 자동조회도 돌지 않는다.
 
 const cfg = window.APP_CONFIG;
 
@@ -16,7 +10,6 @@ const el = {
   quietHours: document.getElementById("quietHours"),
   subscribeBtn: document.getElementById("subscribeBtn"),
   unsubscribeBtn: document.getElementById("unsubscribeBtn"),
-  checkNowBtn: document.getElementById("checkNowBtn"),
   status: document.getElementById("status"),
   lastResult: document.getElementById("lastResult"),
   swaBtn: document.getElementById("swaBtn"),
@@ -34,108 +27,72 @@ function urlBase64ToUint8Array(base64String) {
   return Uint8Array.from([...rawData].map((c) => c.charCodeAt(0)));
 }
 
-// ── SUPABASE 비활성화 시작 ──────────────────────────────────────────────
-// function supabaseHeaders(extra = {}) {
-//   return {
-//     apikey: cfg.SUPABASE_ANON_KEY,
-//     Authorization: `Bearer ${cfg.SUPABASE_ANON_KEY}`,
-//     "Content-Type": "application/json",
-//     ...extra,
-//   };
-// }
-//
-// async function loadConfig() {
-//   try {
-//     const res = await fetch(
-//       `${cfg.SUPABASE_URL}/rest/v1/avail_seats?id=eq.1&select=goods_code,interval_minutes,quiet_hours_enabled,last_result`,
-//       { headers: supabaseHeaders({ Accept: "application/json" }) }
-//     );
-//     if (!res.ok) return;
-//     const rows = await res.json();
-//     const row = rows[0];
-//     if (!row) return;
-//     el.goodsCode.value = row.goods_code ?? el.goodsCode.value;
-//     el.interval.value = row.interval_minutes ?? el.interval.value;
-//     el.quietHours.checked = !!row.quiet_hours_enabled;
-//     renderResult(row.last_result);
-//   } catch (e) {
-//     console.warn("설정 불러오기 실패", e);
-//   }
-// }
-//
-// async function saveConfig() {
-//   const body = {
-//     id: 1,
-//     goods_code: el.goodsCode.value.trim(),
-//     interval_minutes: Math.max(1, parseInt(el.interval.value, 10) || 10),
-//     quiet_hours_enabled: el.quietHours.checked,
-//     updated_at: new Date().toISOString(),
-//   };
-//   const res = await fetch(`${cfg.SUPABASE_URL}/rest/v1/avail_seats?on_conflict=id`, {
-//     method: "POST",
-//     headers: supabaseHeaders({ Prefer: "resolution=merge-duplicates,return=minimal" }),
-//     body: JSON.stringify(body),
-//   });
-//   if (!res.ok) throw new Error(`설정 저장 실패 (HTTP ${res.status})`);
-// }
-//
-// async function saveSubscription(subscription) {
-//   const json = subscription.toJSON();
-//   const body = {
-//     endpoint: json.endpoint,
-//     p256dh: json.keys.p256dh,
-//     auth: json.keys.auth,
-//     updated_at: new Date().toISOString(),
-//   };
-//   const res = await fetch(`${cfg.SUPABASE_URL}/rest/v1/push_subscriptions?on_conflict=endpoint`, {
-//     method: "POST",
-//     headers: supabaseHeaders({ Prefer: "resolution=merge-duplicates,return=minimal" }),
-//     body: JSON.stringify(body),
-//   });
-//   if (!res.ok) throw new Error(`구독 등록 실패 (HTTP ${res.status})`);
-// }
-//
-// async function deleteSubscription(endpoint) {
-//   const res = await fetch(
-//     `${cfg.SUPABASE_URL}/rest/v1/push_subscriptions?endpoint=eq.${encodeURIComponent(endpoint)}`,
-//     { method: "DELETE", headers: supabaseHeaders() }
-//   );
-//   if (!res.ok) throw new Error(`구독 해제 실패 (HTTP ${res.status})`);
-// }
-// ── SUPABASE 비활성화 끝 ────────────────────────────────────────────────
+function supabaseHeaders(extra = {}) {
+  return {
+    apikey: cfg.SUPABASE_ANON_KEY,
+    Authorization: `Bearer ${cfg.SUPABASE_ANON_KEY}`,
+    "Content-Type": "application/json",
+    ...extra,
+  };
+}
 
-// 온디맨드 조회 — 인터파크 API를 브라우저가 직접 부르면 CORS로 막히기 때문에,
-// Supabase Edge Function(check-seats)을 "즉시 조회 프록시"로만 호출한다.
-// (크론/웹푸시/DB저장 없이, goodsCode를 넘기면 그 자리에서 조회 결과만 반환받는 모드)
-async function checkNow() {
-  const code = el.goodsCode.value.trim();
-  if (!code) {
-    setStatus("공연 ID를 입력해주세요.", true);
-    return;
-  }
-  el.checkNowBtn.disabled = true;
-  setStatus("조회 중...");
+async function loadConfig() {
   try {
-    const res = await fetch(`${cfg.SUPABASE_URL}/functions/v1/check-seats`, {
-      method: "POST",
-      headers: {
-        apikey: cfg.SUPABASE_ANON_KEY,
-        Authorization: `Bearer ${cfg.SUPABASE_ANON_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ goodsCode: code }),
-    });
-    const data = await res.json();
-    if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
-
-    renderResult({ checkedAt: data.checkedAt, schedules: data.schedules });
-    setStatus(`✅ 조회 완료 (회차 ${data.schedules.length}개)`);
+    const res = await fetch(
+      `${cfg.SUPABASE_URL}/rest/v1/avail_seats?id=eq.1&select=goods_code,interval_minutes,quiet_hours_enabled,last_result`,
+      { headers: supabaseHeaders({ Accept: "application/json" }) }
+    );
+    if (!res.ok) return;
+    const rows = await res.json();
+    const row = rows[0];
+    if (!row) return;
+    el.goodsCode.value = row.goods_code ?? el.goodsCode.value;
+    el.interval.value = row.interval_minutes ?? el.interval.value;
+    el.quietHours.checked = !!row.quiet_hours_enabled;
+    renderResult(row.last_result);
   } catch (e) {
-    console.error(e);
-    setStatus(`조회 실패: ${e.message || e}`, true);
-  } finally {
-    el.checkNowBtn.disabled = false;
+    console.warn("설정 불러오기 실패", e);
   }
+}
+
+async function saveConfig() {
+  const body = {
+    id: 1,
+    goods_code: el.goodsCode.value.trim(),
+    interval_minutes: Math.max(1, parseInt(el.interval.value, 10) || 10),
+    quiet_hours_enabled: el.quietHours.checked,
+    updated_at: new Date().toISOString(),
+  };
+  const res = await fetch(`${cfg.SUPABASE_URL}/rest/v1/avail_seats?on_conflict=id`, {
+    method: "POST",
+    headers: supabaseHeaders({ Prefer: "resolution=merge-duplicates,return=minimal" }),
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`설정 저장 실패 (HTTP ${res.status})`);
+}
+
+async function saveSubscription(subscription) {
+  const json = subscription.toJSON();
+  const body = {
+    endpoint: json.endpoint,
+    p256dh: json.keys.p256dh,
+    auth: json.keys.auth,
+    updated_at: new Date().toISOString(),
+  };
+  const res = await fetch(`${cfg.SUPABASE_URL}/rest/v1/push_subscriptions?on_conflict=endpoint`, {
+    method: "POST",
+    headers: supabaseHeaders({ Prefer: "resolution=merge-duplicates,return=minimal" }),
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`구독 등록 실패 (HTTP ${res.status})`);
+}
+
+async function deleteSubscription(endpoint) {
+  const res = await fetch(
+    `${cfg.SUPABASE_URL}/rest/v1/push_subscriptions?endpoint=eq.${encodeURIComponent(endpoint)}`,
+    { method: "DELETE", headers: supabaseHeaders() }
+  );
+  if (!res.ok) throw new Error(`구독 해제 실패 (HTTP ${res.status})`);
 }
 
 function renderResult(lastResult) {
@@ -208,12 +165,11 @@ async function subscribe() {
       });
     }
 
-    // SUPABASE 비활성화: 아래 두 줄 주석 해제 시 설정/구독 정보가 서버에 저장됨.
-    // setStatus("설정 저장 중...");
-    // await saveConfig();
-    // await saveSubscription(subscription);
+    setStatus("설정 저장 중...");
+    await saveConfig();
+    await saveSubscription(subscription);
 
-    setStatus("⚠️ 푸시 구독까지는 완료했지만, Supabase 연동이 꺼져있어 서버에 저장되지 않았습니다. 알림이 오지 않습니다.");
+    setStatus("✅ 구독 완료 — 서버가 주기적으로 조회하고, 잔여석이 생기면 알림을 보냅니다.");
   } catch (e) {
     console.error(e);
     setStatus(`오류: ${e.message || e}`, true);
@@ -229,8 +185,7 @@ async function unsubscribe() {
       const registration = await navigator.serviceWorker.getRegistration();
       const subscription = await registration?.pushManager.getSubscription();
       if (subscription) {
-        // SUPABASE 비활성화: 서버에 저장된 구독 정보 삭제도 같이 하려면 주석 해제.
-        // await deleteSubscription(subscription.endpoint);
+        await deleteSubscription(subscription.endpoint);
         await subscription.unsubscribe();
       }
     }
@@ -245,9 +200,9 @@ async function unsubscribe() {
 
 el.subscribeBtn.addEventListener("click", subscribe);
 el.unsubscribeBtn.addEventListener("click", unsubscribe);
-el.checkNowBtn.addEventListener("click", checkNow);
 el.swaBtn.addEventListener("click", () => window.open("https://www.snart.or.kr", "_blank"));
 
-// SUPABASE 비활성화: 저장된 설정 불러오기 + 30초마다 최신 조회 결과 갱신도 같이 재개하려면 주석 해제.
-// loadConfig();
-// setInterval(loadConfig, 30_000);
+loadConfig();
+
+// 30초마다 최신 조회 결과만 가볍게 갱신 (설정 화면을 열어두고 있을 때 참고용).
+setInterval(loadConfig, 30_000);
