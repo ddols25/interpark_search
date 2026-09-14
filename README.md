@@ -37,6 +37,7 @@ webapp/ (정적 페이지, GitHub Pages 등에 호스팅)
 - `supabase/`
   - `schema.sql` — 테이블(`avail_seats`, `push_subscriptions`), RLS 정책, pg_cron 예약 SQL
   - `functions/check-seats/index.ts` — 조회 + 웹푸시 발송 Edge Function
+  - `functions/search-goods/index.ts` — "공연 조회" 버튼용 공연 검색 프록시 Edge Function (NOL 통합검색 API 대신 호출)
 - `.github/workflows/deploy-webapp.yml` — `main`에 push되면 `webapp/`을 GitHub Pages로 자동 배포
 - `InterparkSeatChecker/` — 기존 iOS 네이티브 앱 (레거시, 아래 참고)
 
@@ -60,9 +61,10 @@ Supabase가 기존 `anon`/`service_role`(legacy JWT) 키를 **Publishable key** 
 1. Supabase 프로젝트 SQL Editor에서 `supabase/schema.sql`을 실행 (테이블/RLS/pg_cron 준비)
    - 파일 하단의 `cron.schedule(...)` 블록은 `YOUR_PROJECT_REF`, `YOUR_SERVICE_ROLE_KEY`를
      실제 project ref / **Secret key**(`sb_secret_...`)로 바꾼 뒤 실행하세요.
-2. Edge Function 배포:
+2. Edge Function 배포 (`check-seats`, `search-goods` 둘 다):
    ```bash
    supabase functions deploy check-seats --project-ref YOUR_PROJECT_REF
+   supabase functions deploy search-goods --project-ref YOUR_PROJECT_REF
    supabase secrets set \
      SB_SECRET_KEY=sb_secret_... \
      VAPID_PUBLIC_KEY=... \
@@ -70,6 +72,7 @@ Supabase가 기존 `anon`/`service_role`(legacy JWT) 키를 **Publishable key** 
      VAPID_SUBJECT=mailto:you@example.com \
      --project-ref YOUR_PROJECT_REF
    ```
+   (`search-goods`는 "공연 조회" 버튼이 쓰는 함수로, 별도 시크릿 없이 anon/publishable 키만으로 호출됨)
    (`SB_SECRET_KEY`는 함수가 내부적으로 avail_seats/push_subscriptions 테이블에 접근할 때 씀.
    `SUPABASE_URL`은 Edge Function 런타임에 기본으로 주입되므로 별도 설정 불필요)
 3. Project Settings > API Keys에서 **Project URL**, **Publishable key**, **Secret key**를 확인해둡니다.

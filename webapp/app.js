@@ -10,6 +10,8 @@ const el = {
   quietHours: document.getElementById("quietHours"),
   subscribeBtn: document.getElementById("subscribeBtn"),
   unsubscribeBtn: document.getElementById("unsubscribeBtn"),
+  searchGoodsBtn: document.getElementById("searchGoodsBtn"),
+  searchResults: document.getElementById("searchResults"),
   status: document.getElementById("status"),
   lastResult: document.getElementById("lastResult"),
   swaBtn: document.getElementById("swaBtn"),
@@ -93,6 +95,84 @@ async function deleteSubscription(endpoint) {
     { method: "DELETE", headers: supabaseHeaders() }
   );
   if (!res.ok) throw new Error(`구독 해제 실패 (HTTP ${res.status})`);
+}
+
+// 공연 검색 — Supabase Edge Function(search-goods)이 NOL 통합검색 API를 대신 호출해준다.
+// (브라우저에서 직접 호출하면 다른 인터파크 API들처럼 CORS로 막힐 수 있어서)
+async function searchGoods() {
+  el.searchGoodsBtn.disabled = true;
+  el.searchResults.hidden = false;
+  el.searchResults.innerHTML = `<p class="muted small" style="padding:8px;">검색 중...</p>`;
+  try {
+    const res = await fetch(`${cfg.SUPABASE_URL}/functions/v1/search-goods`, {
+      method: "POST",
+      headers: {
+        apikey: cfg.SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${cfg.SUPABASE_ANON_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ keyword: "성남아트센터" }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+    renderSearchResults(data.items || []);
+  } catch (e) {
+    console.error(e);
+    el.searchResults.innerHTML = `<p class="muted small" style="padding:8px;">검색 실패: ${e.message || e}</p>`;
+  } finally {
+    el.searchGoodsBtn.disabled = false;
+  }
+}
+
+function renderSearchResults(items) {
+  el.searchResults.innerHTML = "";
+  if (items.length === 0) {
+    el.searchResults.innerHTML = `<p class="muted small" style="padding:8px;">검색 결과가 없습니다.</p>`;
+    return;
+  }
+  for (const item of items) {
+    const row = document.createElement("div");
+    row.className = "search-item";
+    row.tabIndex = 0;
+
+    const img = document.createElement("img");
+    img.src = item.thumbnail || "";
+    img.alt = "";
+    img.loading = "lazy";
+    img.onerror = () => {
+      img.style.visibility = "hidden";
+    };
+
+    const info = document.createElement("div");
+    info.className = "info";
+    const title = document.createElement("div");
+    title.className = "title";
+    title.textContent = item.title;
+    const date = document.createElement("div");
+    date.className = "date";
+    date.textContent = item.dateInfo || item.location || "";
+    info.appendChild(title);
+    info.appendChild(date);
+
+    row.appendChild(img);
+    row.appendChild(info);
+
+    const select = () => {
+      el.goodsCode.value = item.id;
+      for (const child of el.searchResults.children) child.classList.remove("selected");
+      row.classList.add("selected");
+      setStatus(`"${item.title}" 선택됨 — 공연 ID ${item.id}`);
+    };
+    row.addEventListener("click", select);
+    row.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        select();
+      }
+    });
+
+    el.searchResults.appendChild(row);
+  }
 }
 
 function renderResult(lastResult) {
@@ -200,6 +280,7 @@ async function unsubscribe() {
 
 el.subscribeBtn.addEventListener("click", subscribe);
 el.unsubscribeBtn.addEventListener("click", unsubscribe);
+el.searchGoodsBtn.addEventListener("click", searchGoods);
 el.swaBtn.addEventListener("click", () => window.open("https://www.snart.or.kr", "_blank"));
 
 loadConfig();

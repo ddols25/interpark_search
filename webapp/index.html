@@ -94,6 +94,42 @@
     padding: 10px 12px;
     margin-bottom: 16px;
   }
+  #searchGoodsBtn { margin-top: 8px; }
+  #searchResults {
+    margin-top: 10px;
+    max-height: 320px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .search-item {
+    display: flex;
+    gap: 10px;
+    padding: 8px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    align-items: center;
+  }
+  .search-item:last-child { border-bottom: none; }
+  .search-item:hover, .search-item:active { background: #16223a; }
+  .search-item.selected { background: #16223a; outline: 1px solid var(--accent); }
+  .search-item img {
+    width: 48px;
+    height: 48px;
+    object-fit: cover;
+    border-radius: 6px;
+    background: #0e1626;
+    flex-shrink: 0;
+  }
+  .search-item .info { min-width: 0; }
+  .search-item .info .title {
+    font-size: 0.85rem;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .search-item .info .date { font-size: 0.75rem; color: var(--muted); }
 </style>
 </head>
 <body>
@@ -109,6 +145,8 @@
     <div class="field">
       <label for="goodsCode">인터파크 공연 ID</label>
       <input type="text" id="goodsCode" inputmode="numeric" placeholder="예: 26009084" value="26009084" />
+      <button class="btn-secondary" id="searchGoodsBtn">🔍 공연 조회 (성남아트센터)</button>
+      <div id="searchResults" hidden></div>
     </div>
     <div class="field">
       <label for="interval">자동조회 주기 (분, 최소 1분)</label>
